@@ -8,4 +8,5 @@ env.bak/
 venv.bak/
 
 # Secrets
-/.streamlit/secrets.toml
+.streamlit/secrets.toml
+
