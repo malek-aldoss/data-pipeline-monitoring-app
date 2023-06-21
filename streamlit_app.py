@@ -15,7 +15,7 @@ def get_table_count(table: str, time: int) -> int:
 
 # Get a count for the rows inserted into a table between two hours ago and one hour ago
 def get_table_count2(table: str, time:int) -> int:
-    return my_cur.execute(f"SELECT count(*) FROM VLT.{table} where dv_load_timestamp <= DATEADD(hour, -{time}, current_timestamp()) AND dv_load_timestamp >= DATEADD(hour, -{time+1}, current_timestamp())").fetchone()[0]
+    return my_cur.execute(f"SELECT count(*) FROM VLT.{table} where dv_load_timestamp <= DATEADD(hour, -{time}, current_timestamp()) AND dv_load_timestamp >= DATEADD(hour, -{time+time}, current_timestamp())").fetchone()[0]
 
 # Get topic names for a specific table
 def get_topic_names(table: str) -> pd:
@@ -40,42 +40,40 @@ my_data_row = my_cur.fetchone()
 # Extract taget table record counts
 df = my_cur.execute("SELECT DISTINCT(REPLACE(TARGET_TABLE, 'VLT.')) AS TARGET_TABLE FROM PROD_GPM_DW.METADATA.KAFKA_SINK_SOURCE_TARGET_V where source_system = 'RXMGT' AND TYPE = 2").fetch_pandas_all()
 
-
+st.title("🔔 `Data Pipeline Monitoring App`")
+st.divider()
 
 # Side bar setup
-st.sidebar.header('🔔 `Data Monitoring Dashboard`')
+st.sidebar.header('⚙️ Dashboard Filter')
 st.sidebar.subheader('Target Table')
 select_target_table = st.sidebar.selectbox('Select target table', df) 
-
 st.sidebar.subheader('Time Frame')
-time_records = st.sidebar.slider('Records insereted in the last:', min_value=1, max_value=24)
-
-
-# st.sidebar.subheader('Heat map parameter')
-# time_hist_color = st.sidebar.selectbox('Color by', ('temp_min', 'temp_max')) 
-# st.sidebar.subheader('Donut chart parameter')
-# donut_theta = st.sidebar.selectbox('Select data', ('q2', 'q3'))
-
-# st.sidebar.subheader('Line chart parameters')
-# plot_data = st.sidebar.multiselect('Select data', ['temp_min', 'temp_max'], ['temp_min', 'temp_max'])
-# plot_height = st.sidebar.slider('Specify plot height', 200, 500, 250)
+insert_time_frame = st.sidebar.slider('Records insereted in the last __ hour:', min_value=1, max_value=24)
 
 st.sidebar.markdown(f'''
 ---
 #### Snowflake Connection established with:
-##### {my_data_row}
+##### By: {my_data_row[0]}
+##### Region: {my_data_row[2]}
 Created with ❤️ by Malek.
 ''')
 
 
 ##### Row A
-st.markdown('### Metrics')
+st.markdown(f"### Records Inserted in the past {insert_time_frame} hour")
 col1, col2 = st.columns([1,3])
-col1.metric("Records Inserted", 
-            get_table_count(select_target_table, time_records), 
-            get_table_count(select_target_table, time_records) - 
-            get_table_count2(select_target_table, time_records)
+col1.metric("Into VLT schema", 
+            get_table_count(select_target_table, insert_time_frame), 
+            get_table_count(select_target_table, insert_time_frame) - 
+            get_table_count2(select_target_table, insert_time_frame)
             )
+col1.metric("Into Splunk", 
+            get_table_count(select_target_table, insert_time_frame), 
+            get_table_count(select_target_table, insert_time_frame) - 
+            get_table_count2(select_target_table, insert_time_frame)
+            )
+
+col2.text(f"kafka topics that feed into {select_target_table}")
 col2.write(get_topic_names(select_target_table))
 
 
@@ -83,31 +81,5 @@ col2.write(get_topic_names(select_target_table))
 records_per_hour = records_timeseries_df(select_target_table)
 st.divider()
 st.markdown('### Records Inserted in the Past 24 Hours')
-st.line_chart(records_per_hour, x='HOUR_OF_DAY', y = 'TOTAL_RECORDS')
+st.line_chart(records_per_hour, x='HOUR_OF_DAY', y = 'TOTAL_RECORDS', use_container_width=True)
 
-
-##### Row C
-# seattle_weather = pd.read_csv('https://raw.githubusercontent.com/tvst/plost/master/data/seattle-weather.csv', parse_dates=['date'])
-# stocks = pd.read_csv('https://raw.githubusercontent.com/dataprofessor/data/master/stocks_toy.csv')
-
-# c1, c2 = st.columns((7,3))
-# with c1:
-#     st.markdown('### Heatmap')
-#     plost.time_hist(
-#     data=seattle_weather,
-#     date='date',
-#     x_unit='week',
-#     y_unit='day',
-#     color=time_hist_color,
-#     aggregate='median',
-#     legend=None,
-#     height=345,
-#     use_container_width=True)
-# with c2:
-#     st.markdown('### Donut chart')
-#     plost.donut_chart(
-#         data=stocks,
-#         theta=donut_theta,
-#         color='company',
-#         legend='bottom', 
-#         use_container_width=True)
