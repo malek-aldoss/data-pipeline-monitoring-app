@@ -6,7 +6,6 @@ import time
 import requests
 
 
-
 auth_token = st.secrets["splunk"]["token"]
 base_url = "https://directvetmarketing.splunkcloud.com:8089/services"
 
