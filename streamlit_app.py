@@ -1,8 +1,9 @@
 import pandas as pd
-import os
 import streamlit as st
-import plost
 import snowflake.connector
+import splunk_search as ss
+import matplotlib.pyplot as plt
+
 
 # Establish Snowflake connection
 @st.cache_resource
@@ -28,7 +29,7 @@ def get_topic_names(table: str) -> pd:
 # Get count of records inserted per hour in the past 24 hours
 @st.cache_data(ttl=1200)
 def records_timeseries_df(table: str) -> pd:
-    return my_cur.execute(f"SELECT DATE_TRUNC('HOUR', dv_load_timestamp) AS hour_of_day, count(*) as total_records FROM VLT.{table} where DV_LOAD_TIMESTAMP >= DATEADD(hour, -24, current_timestamp()) group by DATE_TRUNC('HOUR', dv_load_timestamp) order by hour_of_day DESC").fetch_pandas_all()
+    return my_cur.execute(f"select DATE_TRUNC('HOUR', hour_of_day) AS hour_of_day, sum(vlt_records) as vlt_records from (select *, case when DATE_PART('HOUR', hour_of_day) = 0 AND DATE_PART('MINUTE', hour_of_day) between 0 AND 20 THEN 23 when DATE_PART('MINUTE', hour_of_day) between 0 AND 20 THEN DATE_PART('HOUR', hour_of_day) - 1 else DATE_PART('HOUR', hour_of_day) end as correct_hour from (SELECT dv_load_timestamp AS hour_of_day, count(*) as vlt_records FROM VLT.{table} where DV_LOAD_TIMESTAMP >= DATEADD(day, -1, current_timestamp()) group by dv_load_timestamp order by hour_of_day DESC)) group by DATE_TRUNC('HOUR', hour_of_day) order by hour_of_day DESC").fetch_pandas_all()
 
 st.cache_data(ttl=1200)
 def convert_df(df):
@@ -36,7 +37,27 @@ def convert_df(df):
     return df.to_csv().encode('utf-8')
 
 
+def combine_data():
+    vlt_records_per_hour = records_timeseries_df(select_target_table)
+    splunk_records_per_hour = ss.get_events_timeline(ss.get_search_id(select_target_table, "-24h@h"))
+    
+    vlt_records_per_hour['HOUR_OF_DAY'] = pd.to_datetime(vlt_records_per_hour['HOUR_OF_DAY'])
+    splunk_records_per_hour['earliest_strftime'] = pd.to_datetime(splunk_records_per_hour['earliest_strftime'])
 
+    merged_df = pd.merge(splunk_records_per_hour, vlt_records_per_hour, left_on='earliest_strftime', right_on='HOUR_OF_DAY', how='outer')
+    
+    merged_df.drop('HOUR_OF_DAY', axis=1, inplace=True)
+    
+    merged_df.rename(columns={'VLT_RECORDS': 'vlt_records'}, inplace=True)
+    merged_df.rename(columns={'total_count': 'splunk_records'}, inplace=True)
+    merged_df.rename(columns={'earliest_strftime': 'hour_of_day'}, inplace=True)
+    
+    # vlt_records_per_hour[''] = pd.to_datetime(vlt_records_per_hour['HOUR_OF_DAY'])
+    
+    merged_df['vlt_records'].fillna(0, inplace=True)
+    merged_df['vlt_records'] = merged_df['vlt_records'].astype(int)
+       
+    return merged_df
 
 
 
@@ -52,15 +73,31 @@ my_cur.execute("SELECT CURRENT_USER(), CURRENT_ACCOUNT(), CURRENT_REGION()")
 my_data_row = my_cur.fetchone()
 
 
-# Extract taget table record counts
-df = my_cur.execute("SELECT DISTINCT(REPLACE(TARGET_TABLE, 'VLT.')) AS TARGET_TABLE FROM PROD_GPM_DW.METADATA.KAFKA_SINK_SOURCE_TARGET_V where source_system = 'RXMGT' AND TYPE = 2").fetch_pandas_all()
+# Extract taget table names
+target_tables = my_cur.execute("SELECT DISTINCT(REPLACE(TARGET_TABLE, 'VLT.')) AS TARGET_TABLE FROM PROD_GPM_DW.METADATA.KAFKA_SINK_SOURCE_TARGET_V where source_system = 'RXMGT' AND TYPE = 2").fetch_pandas_all()
+
+topic_names = my_cur.execute("select distinct(topic_name) from PROD_GPM_DW.METADATA.KAFKA_SINK_SOURCE_TARGET_V where source_system = 'RXMGT' AND TYPE = 2").fetch_pandas_all()
+
+
+
+
+
+
+
+
 
 
 # Side bar setup
 with st.sidebar:
     st.header('⚙️ Dashboard Filter')
     st.subheader('Target Table')
-    select_target_table = st.selectbox('Select target table', df) 
+    filter_by = st.radio('Filter by:', ["Target Table", "Topic Name"], disabled=True)
+    
+    if filter_by == "Target Table":
+        select_target_table = st.selectbox('Select target table', target_tables) 
+    else:
+        select_topic_name = st.selectbox('Select topic name', topic_names)
+    
     st.subheader('Time Frame')
     insert_time_frame = st.slider('Records insereted in the last __ hour:', min_value=1, max_value=24)
     st.markdown(f'''
@@ -87,11 +124,7 @@ with col1:
                 get_table_count(select_target_table, insert_time_frame) - 
                 get_table_count2(select_target_table, insert_time_frame)
                 )
-    st.metric("Into Splunk", 
-                get_table_count(select_target_table, insert_time_frame), 
-                get_table_count(select_target_table, insert_time_frame) - 
-                get_table_count2(select_target_table, insert_time_frame)
-                )
+    st.metric("Into Splunk", ss.get_events_summary(ss.get_search_id(select_target_table, f"-{insert_time_frame}h@h"))) #Only works on S_RXMGT_ORDER
 
 with col2:
     st.text(f"kafka topics that feed into {select_target_table}")
@@ -99,10 +132,13 @@ with col2:
 
 
 ##### Row B
-records_per_hour = records_timeseries_df(select_target_table)
+combined_records = combine_data()
+
 st.divider()
 st.markdown('### Records Inserted in the Past 24 Hours')
-st.line_chart(records_per_hour, x='HOUR_OF_DAY', y = 'TOTAL_RECORDS', use_container_width=True)
+fig, ax = plt.subplots()
+combined_records.plot.bar(x = 'hour_of_day', y=['splunk_records','vlt_records'],ax=ax)
+st.pyplot(fig)
 
 
 ##### Row C
