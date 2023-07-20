@@ -1,7 +1,7 @@
 import mysql.connector
 import streamlit as st
 import pandas as pd
-from mysql.connector import errorcode
+# from mysql.connector import errorcode
 
 
 

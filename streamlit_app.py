@@ -2,7 +2,7 @@ import mysql.connector
 import pandas as pd
 import streamlit as st
 import splunk_search as ss
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 import plotly.express as px
 from snowflake_data import *
 from dvm_mysql import *
