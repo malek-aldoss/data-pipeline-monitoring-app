@@ -12,6 +12,7 @@ base_url = "https://directvetmarketing.splunkcloud.com:8089/services"
 
 def get_search_id(table_name: str, earliest_time: str, latest_time:str = "now", status_buckets:int = 300) -> str:
     endpoint = base_url + "/search/jobs"
+    
     headers = {"Authorization": f"Bearer {auth_token}",
                "Content-Type": "application/x-www-form-urlencoded",
                "Connection": "keep-alive"}
@@ -29,7 +30,7 @@ def get_search_id(table_name: str, earliest_time: str, latest_time:str = "now", 
     return response.json()['sid']
 
 
-def get_search_dispatchState(search_id: str) -> json:
+def get_search_dispatchState(search_id: str) -> str:
     endpoint = base_url + f"/search/jobs/{search_id}"
     headers = {"Authorization": f"Bearer {auth_token}"}
     
@@ -39,7 +40,7 @@ def get_search_dispatchState(search_id: str) -> json:
     return response.json()['entry'][0]['content']['dispatchState']
 
 
-def get_events_summary(search_id: str) -> json:
+def get_events_summary(search_id: str) -> int:
     while(get_search_dispatchState(search_id) != "DONE"):
         time.sleep(1)
     
@@ -66,7 +67,7 @@ def get_events(search_id: str) -> json:
     return response
 
 
-def get_events_timeline(search_id: str) -> json:
+def get_events_timeline(search_id: str) -> pd.DataFrame:
     while(get_search_dispatchState(search_id) != "DONE"):
         time.sleep(1)
     
@@ -85,18 +86,9 @@ def get_events_timeline(search_id: str) -> json:
         "earliest_strftime": datetime.strptime(bucket["earliest_strftime"], "%Y-%m-%dT%H:%M:%S.%f+00:00").strftime("%Y-%m-%d %H:%M:%S")
     }
     for bucket in buckets
-]
+    ]
+    
     # Create pandas DataFrame from the extracted data
     df = pd.DataFrame(bucket_data)
     
     return df
-
-
-
-search_query = 'search index=boomi* source="boomi_prod" Event published to state stream for OrderRef - | fields + Order_Ref'
-
-sid = get_search_id("S_RXMGT_ORDER", "-24h@h")
-timeline = get_events_timeline(sid)
-
-print(timeline)
-
