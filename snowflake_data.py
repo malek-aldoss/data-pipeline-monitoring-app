@@ -10,7 +10,6 @@ def snowflake_conn():
     return my_con
 
 
-
 # Extract target table names
 @st.cache_data(ttl=1200)
 def extract_target_tables(source: str) -> pd.DataFrame:
@@ -26,7 +25,6 @@ def extract_topic_names(source: str) -> pd.DataFrame:
     query = f"select distinct(topic_name) from PROD_GPM_DW.METADATA.KAFKA_SINK_SOURCE_TARGET_V where source_system = '{source}' AND TYPE = 2"
     df = pd.read_sql(query, con=conn)
     return df
-
 
 
 # Get a count for the rows inserted into a table in the past x hour
@@ -45,12 +43,11 @@ def get_table_count(table: str, time: int) -> int:
 
 # Get a count for table that is being fed by the topic
 @st.cache_data(ttl=1200)
-def get_topic_count(topic: str, time: int):
+def get_topic_count(topic: str, time: int) -> pd.DataFrame:
     tables_df = get_target_tables(topic)
     tables_df['TARGET_COUNT'] = [get_table_count(tables_df['TARGET_TABLE'][i], time) for i in tables_df.index]
     
     return tables_df
-
 
 
 # Get topic names that feed a specific table
@@ -70,7 +67,6 @@ def get_target_tables(topic: str) -> pd.DataFrame:
     return df
 
 
-
 # Get count of records inserted per hour in the past 24 hours
 @st.cache_data(ttl=1200)
 def records_timeseries_sf(table: str) -> pd.DataFrame:
@@ -84,3 +80,14 @@ def records_timeseries_sf(table: str) -> pd.DataFrame:
         df = pd.read_sql(query, con=conn)
         
     return df    
+
+# Get count of records inserted per hour in the past 24 hours
+@st.cache_data(ttl=1200)
+def sf_records_24h(table: str) -> pd.DataFrame:
+    conn = snowflake_conn()
+    
+    query = f"SELECT DATE_TRUNC('HOUR', DV_LOAD_TIMESTAMP) AS hour_of_day, count(*) as TARGET_COUNT FROM VLT.{table} where DV_LOAD_TIMESTAMP >= DATEADD(hour, -24, current_timestamp()) group by DATE_TRUNC('HOUR', DV_LOAD_TIMESTAMP) order by hour_of_day DESC"
+    df = pd.read_sql(query, con=conn)
+        
+    return df    
+

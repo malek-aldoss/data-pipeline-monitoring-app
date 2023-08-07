@@ -14,7 +14,7 @@ def dvm_conn():
 
 # Gets the count of a dvm table
 @st.cache_data(ttl=1200)
-def get_dvm_count(table: str, time:int):
+def get_dvm_count(table: str, time:int) -> int:
     table_name = table.replace('S_DVM_', '').lower()
     conn= dvm_conn()
     
@@ -30,7 +30,7 @@ def get_dvm_count(table: str, time:int):
 
 # Gets the count of records inserted per hour in the past 24 hours
 @st.cache_data(ttl=1200)
-def records_timeseries_dvm(table: str):
+def records_timeseries_dvm(table: str) -> pd.DataFrame:
     table_name = table.replace('S_DVM_', '').lower()
     conn= dvm_conn()
     
@@ -42,11 +42,6 @@ def records_timeseries_dvm(table: str):
         df = pd.read_sql(query, con=conn)
     
     return df
-
-
-
-
-
 
 
 
